@@ -5,8 +5,12 @@ name = "pypi"
 
 [packages]
 numpy = "*"
+scipy = "*"
+plotly = "*"
+pandas = "*"
 
 [dev-packages]
+yapf = "*"
 
 [requires]
 python_version = "3.9"
