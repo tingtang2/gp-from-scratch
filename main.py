@@ -69,6 +69,10 @@ def draw_prior(rng: Generator,
     fig.show()
 
 
+def viz_posterior():
+    pass
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(description='running gp stuff')
     parser.add_argument('--seed',
@@ -81,6 +85,12 @@ def main() -> int:
     parser.add_argument('--viz_prior_draws',
                         action='store_true',
                         help='viz draw from prior')
+    parser.add_argument('--viz_posterior',
+                        action='store_true',
+                        help='viz posterior with uncertainties')
+    parser.add_argument('--viz_posterior_draws',
+                        action='store_true',
+                        help='viz draws from posterior')
 
     args = parser.parse_args()
     configs = args.__dict__
@@ -92,6 +102,9 @@ def main() -> int:
 
     if configs['viz_prior_draws']:
         draw_prior(rng)
+
+    if configs['viz_posterior']:
+        viz_posterior(rng)
 
     return 0
 
