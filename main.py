@@ -1,13 +1,15 @@
 import argparse
 import sys
+from typing import Tuple
 
 import numpy as np
 import pandas as pd
 import plotly.express as px
+from matplotlib import animation
+from matplotlib import pyplot as plt
 from numpy.random import Generator, default_rng
+from scipy.linalg import solve
 from scipy.spatial.distance import cdist
-
-from typing import Tuple
 
 
 def draw_brownian_motion(rng: Generator,
@@ -69,8 +71,128 @@ def draw_prior(rng: Generator,
     fig.show()
 
 
-def viz_posterior():
-    pass
+def infer_GP_posterior(X_train, y_train, X_test,
+                       kernel) -> Tuple[np.ndarray, np.ndarray]:
+    covar_train_train = kernel(X_train, X_train)
+    covar_train_test = kernel(X_train, X_test)
+
+    covar_weights = solve(covar_train_train, covar_train_test,
+                          assume_a='pos').T
+
+    # inferred y means are weighted averaged of observed covariances and observed ys
+    conditional_test_mu = covar_weights @ y_train
+
+    covar_test_test = kernel(X_test, X_test)
+    conditional_test_covar = covar_test_test - (
+        covar_weights @ covar_train_test)
+
+    return conditional_test_mu, conditional_test_covar
+
+
+def viz_posterior(rng: Generator,
+                  num_train_points: int = 8,
+                  num_test_points: int = 75,
+                  domain: Tuple[int, int] = (-6, 6),
+                  num_draws: int = 5):
+    # true function
+    f_cos = lambda x: np.cos(x).flatten()
+
+    # generate training samples
+    X_train = rng.uniform(domain[0] + 2,
+                          domain[1] - 2,
+                          size=(num_train_points, 1))
+    y_train = f_cos(X_train)
+
+    # uniformly predict on posterior
+    X_test = np.linspace(*domain, num=num_test_points).reshape(-1, 1)
+
+    mu_test, covar_test = infer_GP_posterior(X_train, y_train, X_test,
+                                             rbf_kernel)
+
+    sigma_test = np.sqrt(np.diag(covar_test))
+
+    # viz fit
+    fig, ax = plt.subplots()
+    ax.plot(X_test, f_cos(X_test), 'b--', label='$cos(x)$')
+    ax.fill_between(x=X_test.flat,
+                    y1=mu_test - 2 * sigma_test,
+                    y2=mu_test + 2 * sigma_test,
+                    color='red',
+                    alpha=0.15,
+                    label='$2 \sigma_{test|train}$')
+    ax.plot(X_test, mu_test, 'r-', lw=2, label='$\mu_{test|train}$')
+    ax.plot(X_train, y_train, 'ko', linewidth=2, label='Training samples')
+    ax.set_xlabel('$x$', fontsize=13)
+    ax.set_ylabel('$y$', fontsize=13)
+    ax.set_title('Distribution of posterior and prior data.')
+    ax.legend()
+    plt.show()
+
+    # viz posterior draws
+    f_samples = rng.multivariate_normal(mean=mu_test,
+                                        cov=covar_test,
+                                        size=num_draws)
+
+    data_dict = {
+        'x': np.tile(X_test.reshape(-1), reps=num_draws),
+        'y': f_samples.reshape(-1),
+        'draw': [i for i in range(num_draws) for j in range(X_test.shape[0])]
+    }
+    df = pd.DataFrame(data_dict)
+
+    fig = px.line(df, x='x', y='y', color='draw')
+    fig.show()
+
+
+def create_posterior_animation(rng: Generator,
+                               total_num_train_points: int = 10,
+                               num_test_points: int = 75,
+                               domain: Tuple[int, int] = (-8, 8)):
+    # true function
+    f_cos = lambda x: np.cos(x).flatten()
+
+    fig, ax = plt.subplots()
+
+    # uniformly predict on posterior
+    X_test = np.linspace(*domain, num=num_test_points).reshape(-1, 1)
+    training_points.append(rng.uniform(domain[0] + 2, domain[1] - 2))
+    X_train = np.array(training_points).reshape(-1, 1)
+    y_train = f_cos(X_train)
+    mu_test, covar_test = infer_GP_posterior(X_train, y_train, X_test,
+                                             rbf_kernel)
+
+    sigma_test = np.sqrt(np.diag(covar_test))
+    # viz fit
+    base, = ax.plot(X_test, f_cos(X_test), 'b--', label='$cos(x)$')
+    region, = ax.fill_between(x=X_test.flat,
+                              y1=mu_test - 2 * sigma_test,
+                              y2=mu_test + 2 * sigma_test,
+                              color='red',
+                              alpha=0.15,
+                              label='$2 \sigma_{test|train}$')
+    line, = ax.plot(X_test, mu_test, 'r-', lw=2, label='$\mu_{test|train}$')
+    samples, = ax.plot(X_train,
+                       y_train,
+                       'ko',
+                       linewidth=2,
+                       label='Training samples')
+    ax.legend()
+    ax.set_xlabel('$x$', fontsize=13)
+    ax.set_ylabel('$y$', fontsize=13)
+    ax.set_title('Distribution of posterior and prior data.')
+
+    training_points = []
+
+    def animate(i):
+
+        return region, line, samples
+
+    ani = animation.FuncAnimation(fig,
+                                  animate,
+                                  interval=20,
+                                  blit=True,
+                                  save_count=50)
+    plt.show()
 
 
 def main() -> int:
@@ -91,6 +213,9 @@ def main() -> int:
     parser.add_argument('--viz_posterior_draws',
                         action='store_true',
                         help='viz draws from posterior')
+    parser.add_argument('--animate_posterior_update',
+                        action='store_true',
+                        help='show animation of posterior updates')
 
     args = parser.parse_args()
     configs = args.__dict__
@@ -105,6 +230,9 @@ def main() -> int:
 
     if configs['viz_posterior']:
         viz_posterior(rng)
+
+    if configs['animate_posterior_update']:
+        create_posterior_animation(rng)
 
     return 0
 

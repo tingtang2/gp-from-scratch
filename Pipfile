@@ -8,6 +8,7 @@ numpy = "*"
 scipy = "*"
 plotly = "*"
 pandas = "*"
+matplotlib = "*"
 
 [dev-packages]
 yapf = "*"
