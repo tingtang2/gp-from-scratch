@@ -195,6 +195,85 @@ def create_posterior_animation(rng: Generator,
     plt.show()
 
 
+def infer_GP_posterior_noisy(X_train, y_train, X_test, kernel,
+                             noise: float) -> Tuple[np.ndarray, np.ndarray]:
+    covar_train_train = kernel(X_train, X_train) + (
+        (noise**2) * np.eye(X_train.shape[0]))
+    covar_train_test = kernel(X_train, X_test)
+
+    covar_weights = solve(covar_train_train, covar_train_test,
+                          assume_a='pos').T
+
+    # inferred y means are weighted averaged of observed covariances and observed ys
+    conditional_test_mu = covar_weights @ y_train
+
+    covar_test_test = kernel(X_test, X_test)
+    conditional_test_covar = covar_test_test - (
+        covar_weights @ covar_train_test)
+
+    return conditional_test_mu, conditional_test_covar
+
+
+def viz_posterior_noisy(rng: Generator,
+                        num_train_points: int = 8,
+                        num_test_points: int = 75,
+                        domain: Tuple[int, int] = (-6, 6),
+                        num_draws: int = 5,
+                        noise: float = .1):
+    # true function
+    f_cos = lambda x: np.cos(x).flatten()
+
+    # generate training samples
+    X_train = rng.uniform(domain[0] + 2,
+                          domain[1] - 2,
+                          size=(num_train_points, 1))
+    y_train = f_cos(X_train) + (
+        (noise**2) + rng.standard_normal(num_train_points))
+
+    # uniformly predict on posterior
+    X_test = np.linspace(*domain, num=num_test_points).reshape(-1, 1)
+
+    mu_test, covar_test = infer_GP_posterior_noisy(X_train,
+                                                   y_train,
+                                                   X_test,
+                                                   rbf_kernel,
+                                                   noise=noise)
+
+    sigma_test = np.sqrt(np.diag(covar_test))
+
+    # viz fit
+    fig, ax = plt.subplots()
+    ax.plot(X_test, f_cos(X_test), 'b--', label='$cos(x)$')
+    ax.fill_between(x=X_test.flat,
+                    y1=mu_test - 2 * sigma_test,
+                    y2=mu_test + 2 * sigma_test,
+                    color='red',
+                    alpha=0.15,
+                    label='$2 \sigma_{test|train}$')
+    ax.plot(X_test, mu_test, 'r-', lw=2, label='$\mu_{test|train}$')
+    ax.plot(X_train, y_train, 'ko', linewidth=2, label='Training samples')
+    ax.set_xlabel('$x$', fontsize=13)
+    ax.set_ylabel('$y$', fontsize=13)
+    ax.set_title('Distribution of posterior and prior data.')
+    ax.legend()
+    plt.show()
+
+    # viz posterior draws
+    f_samples = rng.multivariate_normal(mean=mu_test,
+                                        cov=covar_test,
+                                        size=num_draws)
+
+    data_dict = {
+        'x': np.tile(X_test.reshape(-1), reps=num_draws),
+        'y': f_samples.reshape(-1),
+        'draw': [i for i in range(num_draws) for j in range(X_test.shape[0])]
+    }
+    df = pd.DataFrame(data_dict)
+
+    fig = px.line(df, x='x', y='y', color='draw')
+    fig.show()
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(description='running gp stuff')
     parser.add_argument('--seed',
@@ -210,12 +289,12 @@ def main() -> int:
     parser.add_argument('--viz_posterior',
                         action='store_true',
                         help='viz posterior with uncertainties')
-    parser.add_argument('--viz_posterior_draws',
-                        action='store_true',
-                        help='viz draws from posterior')
     parser.add_argument('--animate_posterior_update',
                         action='store_true',
                         help='show animation of posterior updates')
+    parser.add_argument('--viz_posterior_noisy',
+                        action='store_true',
+                        help='viz noisy posterior with uncertainties')
 
     args = parser.parse_args()
     configs = args.__dict__
@@ -233,6 +312,9 @@ def main() -> int:
 
     if configs['animate_posterior_update']:
         create_posterior_animation(rng)
+
+    if configs['viz_posterior_noisy']:
+        viz_posterior_noisy(rng)
 
     return 0
 
